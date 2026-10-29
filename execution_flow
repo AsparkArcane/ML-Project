@@ -1,0 +1,10 @@
+dataset is loaded 
+
+
+
+terminal command to run:
+
+pip install tensorflow opencv-python scipy scikit-learn numpy
+
+python traffic_sign_pipeline_full.py --gtsrb_path ./data/GTSRB --btsd_path ./data/BTSD --ctsd_path ./data/CTSD --epochs 30 --batch_size 64
+
