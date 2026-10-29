@@ -1,0 +1,76 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+*.pyd
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Datasets and Archives
+data/
+BTSD/
+CTSD/
+GTSRB/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# Model weights, checkpoints, and serialized models
+*.pth
+*.pt
+*.ckpt
+*.bin
+*.h5
+*.onnx
+checkpoint_multitask.pth
+
+# Evaluation outputs, metrics, logs, and visualizations
+*.log
+novel_framework_corruption_results.csv
+noise_comparison_results.csv
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.pdf
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE / Editor configurations
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
