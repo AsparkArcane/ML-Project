@@ -1,7 +1,21 @@
 """
-Independent multi-task training script for the MultiTaskRobustSignNet architecture.
-Trains concurrently across GTSRB, BTSD, and CTSD datasets using PyTorch Automatic Mixed Precision (AMP),
-AugMix-style regularization, and periodic 5-minute heartbeat telemetry.
+Independent multi-task training script for the SG-NeRF-CTR architecture.
+
+SG-NeRF-CTR = Spatially-Gated Neural Radiance Field Invariance with
+              Continuous-Topology Routing.
+
+Trains concurrently across GTSRB, BTSD, and CTSD datasets using:
+  - Implicit Neural Distortion Field (INDF) pre-processing
+  - Coordinate-Guided Continuous Topological Router (CTR)
+  - Spatially-Gated Multi-Frequency HyperNetwork (SMFH)
+  - PyTorch Automatic Mixed Precision (AMP) via GradScaler
+  - AugMix-style environmental noise regularisation
+  - Cosine Annealing LR schedule
+  - Periodic 5-minute heartbeat telemetry
+
+The model forward signature is:
+    model(rgb, hsv, sobel, task_name=...) -> (logits, routing_map, blend_weight)
+Only `logits` is used for loss computation during training.
 """
 
 import os
@@ -22,12 +36,12 @@ if PROJECT_ROOT not in sys.path:
 
 import config
 from src.datasets import load_real_dataset_splits, UnifiedTrafficSignDataset
-from src.models import MultiTaskRobustSignNet
+from src.models import SGNeRFCTR as MultiTaskRobustSignNet   # canonical name + compat alias
 from src.utils import set_seed, HeartbeatTracker, save_checkpoint, evaluate_framework
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Multi-Task Traffic Sign Recognition Training Engine")
+    parser = argparse.ArgumentParser(description="SG-NeRF-CTR Multi-Task Traffic Sign Training Engine")
     parser.add_argument("--data-root", type=str, default=config.DATA_ROOT, help="Root folder containing dataset subdirectories")
     parser.add_argument("--epochs", type=int, default=config.NUM_EPOCHS, help="Total training epochs")
     parser.add_argument("--batch-size", type=int, default=config.BATCH_SIZE, help="Batch size per training worker")
@@ -53,6 +67,10 @@ def train_epoch(
 ) -> float:
     """
     Executes one multi-task training epoch across all active dataset loaders.
+
+    The SG-NeRF-CTR forward returns (logits, routing_map, blend_weight).
+    routing_map and blend_weight are auxiliary outputs used for analysis;
+    only logits contribute to the cross-entropy training loss here.
     """
     model.train()
     total_loss = 0.0
@@ -62,16 +80,19 @@ def train_epoch(
     for task_name, loader in dataloaders.items():
         total_batches = len(loader)
         for batch_idx, (rgb, hsv, sobel, labels) in enumerate(loader):
-            rgb = rgb.to(device, non_blocking=True)
-            hsv = hsv.to(device, non_blocking=True)
+            rgb   = rgb.to(device, non_blocking=True)
+            hsv   = hsv.to(device, non_blocking=True)
             sobel = sobel.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
 
             optimizer.zero_grad(set_to_none=True)
 
             # Mixed-precision forward pass
+            # logits: (B, num_classes)
+            # routing_map: (B, 1, H', W') — CTR alpha map (not used in loss)
+            # blend_weight: scalar — SMFH gate value (not used in loss)
             with torch.amp.autocast(device_type="cuda", enabled=use_cuda):
-                logits, _, _ = model(rgb, hsv, sobel, task_name=task_name)
+                logits, _routing_map, _blend = model(rgb, hsv, sobel, task_name=task_name)
                 loss = criterion(logits, labels)
 
             # Mixed-precision scaled backward step
@@ -102,7 +123,7 @@ def main():
     args = parse_args()
 
     print("\n" + "=" * 80)
-    print("STARTING MULTI-TASK ROBUST TRAFFIC SIGN TRAINING ENGINE")
+    print("STARTING SG-NeRF-CTR MULTI-TASK TRAFFIC SIGN TRAINING ENGINE")
     print("=" * 80)
 
     # Initialize deterministic seeds
@@ -165,7 +186,7 @@ def main():
             f"Test Samples={len(te_p):<5} | Classes={n_cls}"
         )
 
-    # Instantiate model backbone
+    # Instantiate SG-NeRF-CTR model
     model = MultiTaskRobustSignNet(num_classes_dict=num_classes_dict).to(device)
     criterion = nn.CrossEntropyLoss(label_smoothing=config.LABEL_SMOOTHING)
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -175,7 +196,7 @@ def main():
     heartbeat = HeartbeatTracker(interval_sec=config.HEARTBEAT_INTERVAL_SEC)
     start_time = time.time()
 
-    print(f"\n[INFO] Training across {args.epochs} epochs with AMP acceleration & Cosine Annealing...")
+    print(f"\n[INFO] Training SG-NeRF-CTR across {args.epochs} epochs with AMP & Cosine Annealing...")
 
     for epoch in range(1, args.epochs + 1):
         epoch_start = time.time()
@@ -213,11 +234,10 @@ def main():
 
     total_duration_min = (time.time() - start_time) / 60.0
     print("\n" + "=" * 80)
-    print(f"[SUCCESS] Multi-Task Training Finished in {total_duration_min:.1f} minutes.")
+    print(f"[SUCCESS] SG-NeRF-CTR Multi-Task Training Finished in {total_duration_min:.1f} minutes.")
     print(f"[INFO] Weights saved to: '{args.checkpoint_path}'")
     print("=" * 80 + "\n")
 
 
 if __name__ == "__main__":
     main()
-

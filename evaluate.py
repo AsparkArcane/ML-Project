@@ -1,8 +1,15 @@
 """
-Comprehensive robustness benchmarking script for the MultiTaskRobustSignNet system.
-Evaluates Clean Baseline performance and 14 environmental corruptions across 5 severity levels for
-GTSRB, BTSD, and CTSD datasets with Test-Time Adaptation (TENT) for severe corruptions.
-Strictly restores pristine model weights between adaptation trials to prevent weight leakage.
+Comprehensive robustness benchmarking script for the SG-NeRF-CTR system.
+
+SG-NeRF-CTR = Spatially-Gated Neural Radiance Field Invariance with
+              Continuous-Topology Routing.
+
+Evaluates clean baseline and 14 environmental corruptions across 5 severity levels
+for GTSRB, BTSD, and CTSD with TENT adaptation on severe corruptions (severity >= 4).
+
+IMPORTANT: Pristine model weights are restored before every TENT adaptation iteration
+to prevent parameter leakage across evaluation loops.
+
 Exports detailed benchmark metrics to novel_framework_corruption_results.csv.
 """
 
@@ -23,13 +30,13 @@ if PROJECT_ROOT not in sys.path:
 
 import config
 from src.datasets import load_real_dataset_splits, UnifiedTrafficSignDataset
-from src.models import MultiTaskRobustSignNet
+from src.models import SGNeRFCTR as MultiTaskRobustSignNet   # canonical name + compat alias
 from src.adaptation import apply_tent_adaptation, snapshot_model_state, restore_model_state
 from src.utils import set_seed, evaluate_framework, load_checkpoint
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Multi-Task Traffic Sign Robustness Benchmark Suite")
+    parser = argparse.ArgumentParser(description="SG-NeRF-CTR Traffic Sign Robustness Benchmark Suite")
     parser.add_argument("--data-root", type=str, default=config.DATA_ROOT, help="Dataset root directory")
     parser.add_argument("--checkpoint-path", type=str, default=config.CHECKPOINT_PATH, help="Path to trained checkpoint")
     parser.add_argument("--output-csv", type=str, default=config.RESULTS_CSV_PATH, help="CSV destination for benchmark results")
@@ -37,7 +44,8 @@ def parse_args():
     parser.add_argument("--datasets", nargs="+", default=config.DATASETS_TO_RUN,
                         help="One or more datasets to evaluate (e.g., --datasets GTSRB or --datasets BTSD CTSD). Options: GTSRB, BTSD, CTSD")
     parser.add_argument("--num-workers", type=int, default=config.NUM_WORKERS, help="DataLoader CPU worker thread count")
-    parser.add_argument("--use-early-exit", action="store_true", default=True, help="Enable early exit head evaluation")
+    parser.add_argument("--use-early-exit", action="store_true", default=False,
+                        help="(Legacy flag; SG-NeRF-CTR uses CTR routing instead — kept for CLI compatibility)")
     return parser.parse_args()
 
 
@@ -45,7 +53,7 @@ def main():
     args = parse_args()
 
     print("\n" + "=" * 80)
-    print("STARTING COMPREHENSIVE TRAFFIC SIGN ROBUSTNESS BENCHMARK")
+    print("STARTING SG-NeRF-CTR COMPREHENSIVE TRAFFIC SIGN ROBUSTNESS BENCHMARK")
     print("=" * 80)
 
     set_seed(config.RANDOM_SEED)
@@ -73,7 +81,7 @@ def main():
         num_classes_dict[dataset_name] = num_classes
         print(f"  • {dataset_name:<5}: Test Samples = {len(te_paths)} | Classes = {num_classes}")
 
-    # Initialize model
+    # Initialize SG-NeRF-CTR model
     model = MultiTaskRobustSignNet(num_classes_dict=num_classes_dict).to(device)
 
     # Restore checkpoint
@@ -100,9 +108,9 @@ def main():
 
         te_paths, te_labels = test_splits[task_name]
 
-        # ----------------------------------------------------------------------
+        # ------------------------------------------------------------------
         # 1. Clean Baseline Evaluation
-        # ----------------------------------------------------------------------
+        # ------------------------------------------------------------------
         restore_model_state(model, clean_state_snapshot, device)
         clean_ds = UnifiedTrafficSignDataset(
             file_paths=te_paths,
@@ -124,7 +132,7 @@ def main():
             dataloader=clean_loader,
             device=device,
             task_name=task_name,
-            use_early_exit=args.use_early_exit
+            use_early_exit=False          # CTR handles routing; no legacy early-exit
         )
 
         print(
@@ -144,12 +152,12 @@ def main():
         })
         completed_evals += 1
 
-        # ----------------------------------------------------------------------
+        # ------------------------------------------------------------------
         # 2. Corrupted Benchmark Suite (14 Corruptions x 5 Severities)
-        # ----------------------------------------------------------------------
+        # ------------------------------------------------------------------
         for noise in config.NOISE_TYPES:
             for sev in config.SEVERITY_LEVELS:
-                # IMPORTANT: Reset to clean snapshot before every evaluation trial to prevent parameter leakage
+                # IMPORTANT: Reset to clean snapshot before every trial to prevent leakage
                 restore_model_state(model, clean_state_snapshot, device)
 
                 corr_ds = UnifiedTrafficSignDataset(
@@ -168,6 +176,8 @@ def main():
                     pin_memory=pin_mem
                 )
 
+                # Apply TENT on severe corruptions to further leverage the INDF
+                # and SMFH adaptation surfaces inside SG-NeRF-CTR
                 adapted_tent = False
                 if sev >= config.TENT_SEVERITY_THRESHOLD:
                     apply_tent_adaptation(
@@ -185,7 +195,7 @@ def main():
                     dataloader=corr_loader,
                     device=device,
                     task_name=task_name,
-                    use_early_exit=args.use_early_exit
+                    use_early_exit=False
                 )
 
                 master_results.append({
@@ -227,12 +237,12 @@ def main():
 
     mean_clean_acc = clean_rows["Testing_Accuracy"].mean()
     mean_noisy_acc = noisy_rows["Testing_Accuracy"].mean()
-    mean_latency = results_df["Latency_ms"].mean()
+    mean_latency   = results_df["Latency_ms"].mean()
 
     print("\n" + "=" * 80)
-    print("FINAL BENCHMARK PERFORMANCE METRICS & SOLUTION QUALITY VERDICT")
+    print("FINAL SG-NeRF-CTR BENCHMARK PERFORMANCE METRICS")
     print("=" * 80)
-    print(f"• Datasets Evaluated  : {', '.join(config.DATASETS_TO_RUN)}")
+    print(f"• Datasets Evaluated  : {', '.join(selected_datasets)}")
     print(f"• Total Test Trials   : {len(results_df)}")
     print(f"• Mean Clean Accuracy : {mean_clean_acc * 100:.2f}%")
     print(f"• Mean Noisy Accuracy : {mean_noisy_acc * 100:.2f}%")

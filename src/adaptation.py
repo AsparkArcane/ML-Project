@@ -1,7 +1,11 @@
 """
-Test-Time Adaptation (TENT) module for the Unified Traffic Sign Classification System.
-Minimizes model entropy on corrupted test distributions by adapting BatchNorm affine parameters online.
-Includes strict state checkpointing and restoration utilities to prevent weight leakage across evaluation loops.
+Test-Time Adaptation (TENT) module for the SG-NeRF-CTR Traffic Sign Classification System.
+Minimises model entropy on corrupted test distributions by adapting BatchNorm and LayerNorm
+affine parameters online.  Includes strict state checkpointing and restoration utilities to
+prevent weight leakage across evaluation loops.
+
+Compatible with the SG-NeRF-CTR forward signature:
+    model(rgb, hsv, sobel, task_name=...) -> (logits, routing_map, blend_weight)
 """
 
 import copy
@@ -38,40 +42,60 @@ def apply_tent_adaptation(
     lr: float = 1e-3
 ):
     """
-    Applies Test-Time Entropy Minimization (TENT) to the model.
-    Optimizes only BatchNorm affine parameters (weight & bias) while keeping
-    the rest of the backbone frozen.
+    Applies Test-Time Entropy Minimization (TENT) to the SG-NeRF-CTR model.
+
+    Optimises only the affine parameters of BatchNorm and LayerNorm layers
+    (weight & bias) while keeping the rest of the backbone frozen.  These
+    normalisation layers are the lightest adaptation target and carry most of
+    the distribution-shift signal.
+
+    INDF residual_scale and SMFH blend_gate are also unlocked so the model
+    can dynamically re-tune its corruption-correction and frequency-selectivity
+    responses to the new test distribution.
 
     Args:
-        model: PyTorch model to adapt
-        corrupted_loader: DataLoader containing the target out-of-distribution / corrupted samples
-        device: Active torch compute device
-        task_name: Key identifying the target dataset / task head
-        steps: Number of test-time optimization passes over the loader
-        lr: Learning rate for test-time Adam optimizer
+        model:            SG-NeRF-CTR (or any nn.Module) to adapt.
+        corrupted_loader: DataLoader with out-of-distribution / corrupted samples.
+        device:           Active torch compute device.
+        task_name:        Key identifying the target dataset / task head.
+        steps:            Number of test-time optimisation passes over the loader.
+        lr:               Learning rate for the test-time Adam optimiser.
     """
     model.eval()
 
-    # Collect only BatchNorm parameters (weights and biases)
-    bn_params = []
-    for name, param in model.named_parameters():
-        if "bn" in name or "batchnorm" in name:
-            param.requires_grad = True
-            bn_params.append(param)
+    # Collect adaptable parameters: norm layer affines + lightweight scalar gates
+    adapt_params = []
+    _norm_types = (nn.BatchNorm1d, nn.BatchNorm2d, nn.LayerNorm)
+    for name, module in model.named_modules():
+        if isinstance(module, _norm_types):
+            for param in module.parameters():
+                param.requires_grad = True
+                adapt_params.append(param)
         else:
-            param.requires_grad = False
+            for param in module.parameters(recurse=False):
+                param.requires_grad = False
 
-    if not bn_params:
+    # Also adapt the INDF residual scale and SMFH blend gate (small scalars)
+    for attr in ("indf", "smfh"):
+        sub = getattr(model, attr, None)
+        if sub is not None:
+            for pname in ("residual_scale", "blend_gate"):
+                p = getattr(sub, pname, None)
+                if isinstance(p, nn.Parameter):
+                    p.requires_grad = True
+                    adapt_params.append(p)
+
+    if not adapt_params:
         return
 
-    optimizer_tent = optim.Adam(bn_params, lr=lr)
+    optimizer_tent = optim.Adam(adapt_params, lr=lr)
     use_cuda = (device.type == "cuda")
     scaler = torch.amp.GradScaler("cuda", enabled=use_cuda)
 
     for _ in range(steps):
         for rgb, hsv, sobel, _ in corrupted_loader:
-            rgb = rgb.to(device, non_blocking=True)
-            hsv = hsv.to(device, non_blocking=True)
+            rgb   = rgb.to(device, non_blocking=True)
+            hsv   = hsv.to(device, non_blocking=True)
             sobel = sobel.to(device, non_blocking=True)
 
             optimizer_tent.zero_grad(set_to_none=True)
@@ -79,14 +103,13 @@ def apply_tent_adaptation(
             with torch.amp.autocast(device_type="cuda", enabled=use_cuda):
                 logits, _, _ = model(rgb, hsv, sobel, task_name=task_name)
                 probs = F.softmax(logits, dim=1)
-                # Entropy minimization objective
+                # Shanon entropy minimisation objective
                 entropy_loss = -torch.sum(probs * torch.log(probs + 1e-6), dim=1).mean()
 
             scaler.scale(entropy_loss).backward()
             scaler.step(optimizer_tent)
             scaler.update()
 
-    # Reset parameter requires_grad state
+    # Restore full trainability after adaptation so evaluation runs normally
     for param in model.parameters():
         param.requires_grad = True
-

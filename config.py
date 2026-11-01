@@ -1,5 +1,5 @@
 """
-Configuration module for the Unified Noise-Robust Traffic Sign Classification Framework.
+Configuration module for the SG-NeRF-CTR Noise-Robust Traffic Sign Classification Framework.
 Optimized for NVIDIA CUDA acceleration with multi-task training across GTSRB, BTSD, and CTSD datasets.
 """
 
@@ -65,7 +65,21 @@ CHANNELS_HSV = 3
 CHANNELS_SOBEL = 1
 
 # ==============================================================================
-# 4. TRAINING HYPERPARAMETERS
+# 4. SG-NeRF-CTR NOVEL ARCHITECTURE HYPERPARAMETERS
+# ==============================================================================
+# Implicit Neural Distortion Field (INDF)
+INDF_NUM_FREQS = 16        # Fourier positional encoding frequency bands
+INDF_HIDDEN_DIM = 64       # Width of INDF coordinate MLP
+
+# Continuous Topological Router (CTR)
+CTR_CHANNELS = 64          # Channel width at router insertion point (after layer1)
+
+# Spatially-Gated Multi-Frequency HyperNetwork (SMFH)
+SMFH_FREQ_DESC_DIM = 128   # Frequency descriptor vector length
+SMFH_HYPER_OUT_CH = 64     # Passband dynamic convolution channel depth
+
+# ==============================================================================
+# 5. TRAINING HYPERPARAMETERS
 # ==============================================================================
 BATCH_SIZE = 64 if DEVICE.type == "cuda" else 32
 NUM_WORKERS = 4 if DEVICE.type == "cuda" else 2
@@ -79,20 +93,20 @@ NUM_EPOCHS = 10
 EARLY_EXIT_CONFIDENCE = 0.95
 
 # ==============================================================================
-# 5. TEST-TIME ADAPTATION (TENT) HYPERPARAMETERS
+# 6. TEST-TIME ADAPTATION (TENT) HYPERPARAMETERS
 # ==============================================================================
 TENT_LR = 1e-3
 TENT_STEPS = 1
 TENT_SEVERITY_THRESHOLD = 4  # Apply TENT adaptation on severe corruptions (severity >= 4)
 
 # ==============================================================================
-# 6. LOGGING & HEARTBEAT SETTINGS
+# 7. LOGGING & HEARTBEAT SETTINGS
 # ==============================================================================
 HEARTBEAT_INTERVAL_SEC = 300  # 5-minute periodic status logs
 LOG_INTERVAL_BATCHES = 200
 
 # ==============================================================================
-# 7. NOISE CORRUPTION BENCHMARK SUITE (14 CORRUPTIONS)
+# 8. NOISE CORRUPTION BENCHMARK SUITE (14 CORRUPTIONS)
 # ==============================================================================
 NOISE_TYPES = [
     "Gaussian",
@@ -112,4 +126,3 @@ NOISE_TYPES = [
 ]
 
 SEVERITY_LEVELS = [1, 2, 3, 4, 5]
-
